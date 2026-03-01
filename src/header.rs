@@ -355,8 +355,7 @@ impl Header {
         if let Some(ustar) = self.as_ustar() {
             ustar.path_bytes()
         } else {
-            let name = truncate(&self.as_old().name);
-            Cow::Borrowed(name)
+            Cow::Borrowed(self.as_core().path_bytes())
         }
     }
 
@@ -434,11 +433,11 @@ impl Header {
     /// Note that this function will convert any `\` characters to directory
     /// separators.
     pub fn link_name_bytes(&self) -> Option<Cow<'_, [u8]>> {
-        let old = self.as_old();
-        if old.linkname[0] != 0 {
-            Some(Cow::Borrowed(truncate(&old.linkname)))
-        } else {
+        let link = self.as_core().link_name_bytes();
+        if link.is_empty() {
             None
+        } else {
+            Some(Cow::Borrowed(link))
         }
     }
 
@@ -698,12 +697,33 @@ impl Header {
     ///
     /// May return an error if the field is corrupted.
     pub fn cksum(&self) -> io::Result<u32> {
-        octal_from(&self.as_old().cksum)
-            .map(|u| u as u32)
-            .map_err(|err| {
+        // Parse the octal checksum field directly. Truncate at first null
+        // byte, convert to str, trim whitespace, then parse as octal.
+        let field = &self.as_old().cksum;
+        let truncated = match field.iter().position(|&b| b == 0) {
+            Some(i) => &field[..i],
+            None => &field[..],
+        };
+        let text = str::from_utf8(truncated).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::Other,
+                format!(
+                    "numeric field did not have utf-8 text: {} when getting cksum for {}",
+                    String::from_utf8_lossy(truncated),
+                    self.path_lossy()
+                ),
+            )
+        })?;
+        u64::from_str_radix(text.trim(), 8)
+            .map(|v| v as u32)
+            .map_err(|_| {
                 io::Error::new(
-                    err.kind(),
-                    format!("{} when getting cksum for {}", err, self.path_lossy()),
+                    io::ErrorKind::Other,
+                    format!(
+                        "numeric field was not a number: {} when getting cksum for {}",
+                        text,
+                        self.path_lossy()
+                    ),
                 )
             })
     }
@@ -935,16 +955,18 @@ impl fmt::Debug for OldHeader {
 impl UstarHeader {
     /// See `Header::path_bytes`
     pub fn path_bytes(&self) -> Cow<'_, [u8]> {
-        if self.prefix[0] == 0 && !self.name.contains(&b'\\') {
-            Cow::Borrowed(truncate(&self.name))
+        let core = tar_core::Header::from_bytes(self.as_header().as_bytes());
+        let name = core.path_bytes();
+        let prefix = core.prefix().unwrap_or(&[]);
+        if prefix.is_empty() && !self.name.contains(&b'\\') {
+            Cow::Borrowed(name)
         } else {
             let mut bytes = Vec::new();
-            let prefix = truncate(&self.prefix);
             if !prefix.is_empty() {
                 bytes.extend_from_slice(prefix);
                 bytes.push(b'/');
             }
-            bytes.extend_from_slice(truncate(&self.name));
+            bytes.extend_from_slice(name);
             Cow::Owned(bytes)
         }
     }
@@ -1014,7 +1036,7 @@ impl UstarHeader {
 
     /// See `Header::username_bytes`
     pub fn username_bytes(&self) -> &[u8] {
-        truncate(&self.uname)
+        self.as_header().username_bytes().unwrap_or(&[])
     }
 
     /// See `Header::set_username`
@@ -1029,7 +1051,7 @@ impl UstarHeader {
 
     /// See `Header::groupname_bytes`
     pub fn groupname_bytes(&self) -> &[u8] {
-        truncate(&self.gname)
+        self.as_header().groupname_bytes().unwrap_or(&[])
     }
 
     /// See `Header::set_groupname`
@@ -1044,18 +1066,7 @@ impl UstarHeader {
 
     /// See `Header::device_major`
     pub fn device_major(&self) -> io::Result<u32> {
-        octal_from(&self.dev_major)
-            .map(|u| u as u32)
-            .map_err(|err| {
-                io::Error::new(
-                    err.kind(),
-                    format!(
-                        "{} when getting device_major for {}",
-                        err,
-                        self.path_lossy()
-                    ),
-                )
-            })
+        self.as_header().device_major().map(|opt| opt.unwrap_or(0))
     }
 
     /// See `Header::set_device_major`
@@ -1065,18 +1076,7 @@ impl UstarHeader {
 
     /// See `Header::device_minor`
     pub fn device_minor(&self) -> io::Result<u32> {
-        octal_from(&self.dev_minor)
-            .map(|u| u as u32)
-            .map_err(|err| {
-                io::Error::new(
-                    err.kind(),
-                    format!(
-                        "{} when getting device_minor for {}",
-                        err,
-                        self.path_lossy()
-                    ),
-                )
-            })
+        self.as_header().device_minor().map(|opt| opt.unwrap_or(0))
     }
 
     /// See `Header::set_device_minor`
@@ -1106,7 +1106,7 @@ impl fmt::Debug for UstarHeader {
 impl GnuHeader {
     /// See `Header::username_bytes`
     pub fn username_bytes(&self) -> &[u8] {
-        truncate(&self.uname)
+        self.as_header().username_bytes().unwrap_or(&[])
     }
 
     /// Gets the fullname (group:user) in a "lossy" way, used for error reporting ONLY.
@@ -1134,7 +1134,7 @@ impl GnuHeader {
 
     /// See `Header::groupname_bytes`
     pub fn groupname_bytes(&self) -> &[u8] {
-        truncate(&self.gname)
+        self.as_header().groupname_bytes().unwrap_or(&[])
     }
 
     /// See `Header::set_groupname`
@@ -1153,18 +1153,7 @@ impl GnuHeader {
 
     /// See `Header::device_major`
     pub fn device_major(&self) -> io::Result<u32> {
-        octal_from(&self.dev_major)
-            .map(|u| u as u32)
-            .map_err(|err| {
-                io::Error::new(
-                    err.kind(),
-                    format!(
-                        "{} when getting device_major for {}",
-                        err,
-                        self.fullname_lossy()
-                    ),
-                )
-            })
+        self.as_header().device_major().map(|opt| opt.unwrap_or(0))
     }
 
     /// See `Header::set_device_major`
@@ -1174,18 +1163,7 @@ impl GnuHeader {
 
     /// See `Header::device_minor`
     pub fn device_minor(&self) -> io::Result<u32> {
-        octal_from(&self.dev_minor)
-            .map(|u| u as u32)
-            .map_err(|err| {
-                io::Error::new(
-                    err.kind(),
-                    format!(
-                        "{} when getting device_minor for {}",
-                        err,
-                        self.fullname_lossy()
-                    ),
-                )
-            })
+        self.as_header().device_minor().map(|opt| opt.unwrap_or(0))
     }
 
     /// See `Header::set_device_minor`
@@ -1337,35 +1315,11 @@ impl Default for GnuExtSparseHeader {
     }
 }
 
-fn octal_from(slice: &[u8]) -> io::Result<u64> {
-    let trun = truncate(slice);
-    let num = match str::from_utf8(trun) {
-        Ok(n) => n,
-        Err(_) => {
-            return Err(other(&format!(
-                "numeric field did not have utf-8 text: {}",
-                String::from_utf8_lossy(trun)
-            )));
-        }
-    };
-    match u64::from_str_radix(num.trim(), 8) {
-        Ok(n) => Ok(n),
-        Err(_) => Err(other(&format!("numeric field was not a number: {}", num))),
-    }
-}
-
 fn octal_into<T: fmt::Octal>(dst: &mut [u8], val: T) {
     let o = format!("{:o}", val);
     let value = once(b'\0').chain(o.bytes().rev().chain(repeat(b'0')));
     for (slot, value) in dst.iter_mut().rev().zip(value) {
         *slot = value;
-    }
-}
-
-fn truncate(slice: &[u8]) -> &[u8] {
-    match slice.iter().position(|i| *i == 0) {
-        Some(i) => &slice[..i],
-        None => slice,
     }
 }
 
