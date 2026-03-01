@@ -615,7 +615,7 @@ async fn prepare_header_path<Dst: Write + Unpin + ?Sized>(
         if data.len() < max {
             return Err(e);
         }
-        let header2 = prepare_header(data.len() as u64, EntryType::GNULongName);
+        let header2 = prepare_header(data.len() as u64, EntryType::GnuLongName);
         // null-terminated string
         let mut data2 = data.chain(io::repeat(0).take(1));
         append(dst, &header2, &mut data2).await?;
@@ -645,7 +645,7 @@ async fn prepare_header_link<Dst: Write + Unpin + ?Sized>(
         if data.len() < header.as_old().linkname.len() {
             return Err(e);
         }
-        let header2 = prepare_header(data.len() as u64, EntryType::GNULongLink);
+        let header2 = prepare_header(data.len() as u64, EntryType::GnuLongLink);
         let mut data2 = data.chain(io::repeat(0).take(1));
         append(dst, &header2, &mut data2).await?;
     }

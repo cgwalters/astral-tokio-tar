@@ -24,6 +24,7 @@ contents are never required to be entirely resident in memory all at once.
 """
 
 [dependencies]
+tar-core = { git = "https://github.com/cgwalters/tar-core", branch = "main" }
 filetime = "0.2"
 futures-core = "0.3"
 portable-atomic = "1"
@@ -44,3 +45,5 @@ default = ["xattr"]
 
 [lib]
 name = "tokio_tar"
+
+[workspace]
