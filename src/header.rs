@@ -7,7 +7,6 @@ use std::{
     borrow::Cow,
     fmt,
     fs::Metadata,
-    iter,
     iter::{once, repeat},
     mem,
     path::{Component, Path, PathBuf},
@@ -49,115 +48,110 @@ pub enum HeaderMode {
 }
 
 /// Representation of the header of an entry in an archive
-#[repr(C)]
+#[repr(transparent)]
 #[allow(missing_docs)]
-pub struct OldHeader {
-    pub name: [u8; 100],
-    pub mode: [u8; 8],
-    pub uid: [u8; 8],
-    pub gid: [u8; 8],
-    pub size: [u8; 12],
-    pub mtime: [u8; 12],
-    pub cksum: [u8; 8],
-    pub linkflag: [u8; 1],
-    pub linkname: [u8; 100],
-    pub pad: [u8; 255],
+pub struct OldHeader(pub tar_core::OldHeader);
+
+impl std::ops::Deref for OldHeader {
+    type Target = tar_core::OldHeader;
+    fn deref(&self) -> &tar_core::OldHeader {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for OldHeader {
+    fn deref_mut(&mut self) -> &mut tar_core::OldHeader {
+        &mut self.0
+    }
 }
 
 /// Representation of the header of an entry in an archive
-#[repr(C)]
+#[repr(transparent)]
 #[allow(missing_docs)]
-pub struct UstarHeader {
-    pub name: [u8; 100],
-    pub mode: [u8; 8],
-    pub uid: [u8; 8],
-    pub gid: [u8; 8],
-    pub size: [u8; 12],
-    pub mtime: [u8; 12],
-    pub cksum: [u8; 8],
-    pub typeflag: [u8; 1],
-    pub linkname: [u8; 100],
+pub struct UstarHeader(pub tar_core::UstarHeader);
 
-    // UStar format
-    pub magic: [u8; 6],
-    pub version: [u8; 2],
-    pub uname: [u8; 32],
-    pub gname: [u8; 32],
-    pub dev_major: [u8; 8],
-    pub dev_minor: [u8; 8],
-    pub prefix: [u8; 155],
-    pub pad: [u8; 12],
+impl std::ops::Deref for UstarHeader {
+    type Target = tar_core::UstarHeader;
+    fn deref(&self) -> &tar_core::UstarHeader {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for UstarHeader {
+    fn deref_mut(&mut self) -> &mut tar_core::UstarHeader {
+        &mut self.0
+    }
 }
 
 /// Representation of the header of an entry in an archive
-#[repr(C)]
+#[repr(transparent)]
 #[allow(missing_docs)]
-pub struct GnuHeader {
-    pub name: [u8; 100],
-    pub mode: [u8; 8],
-    pub uid: [u8; 8],
-    pub gid: [u8; 8],
-    pub size: [u8; 12],
-    pub mtime: [u8; 12],
-    pub cksum: [u8; 8],
-    pub typeflag: [u8; 1],
-    pub linkname: [u8; 100],
+pub struct GnuHeader(pub tar_core::GnuHeader);
 
-    // GNU format
-    pub magic: [u8; 6],
-    pub version: [u8; 2],
-    pub uname: [u8; 32],
-    pub gname: [u8; 32],
-    pub dev_major: [u8; 8],
-    pub dev_minor: [u8; 8],
-    pub atime: [u8; 12],
-    pub ctime: [u8; 12],
-    pub offset: [u8; 12],
-    pub longnames: [u8; 4],
-    pub unused: [u8; 1],
-    pub sparse: [GnuSparseHeader; 4],
-    pub isextended: [u8; 1],
-    pub realsize: [u8; 12],
-    pub pad: [u8; 17],
+impl std::ops::Deref for GnuHeader {
+    type Target = tar_core::GnuHeader;
+    fn deref(&self) -> &tar_core::GnuHeader {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for GnuHeader {
+    fn deref_mut(&mut self) -> &mut tar_core::GnuHeader {
+        &mut self.0
+    }
 }
 
-/// Description of the header of a spare entry.
+/// Description of the header of a sparse entry.
 ///
 /// Specifies the offset/number of bytes of a chunk of data in octal.
-#[repr(C)]
-#[allow(missing_docs)]
-pub struct GnuSparseHeader {
-    pub offset: [u8; 12],
-    pub numbytes: [u8; 12],
-}
+pub type GnuSparseHeader = tar_core::GnuSparseHeader;
 
 /// Representation of the entry found to represent extended GNU sparse files.
 ///
 /// When a `GnuHeader` has the `isextended` flag set to `1` then the contents of
 /// the next entry will be one of these headers.
-#[repr(C)]
+#[repr(transparent)]
 #[allow(missing_docs)]
-pub struct GnuExtSparseHeader {
-    pub sparse: [GnuSparseHeader; 21],
-    pub isextended: [u8; 1],
-    pub padding: [u8; 7],
+pub struct GnuExtSparseHeader(pub tar_core::GnuExtSparseHeader);
+
+impl std::ops::Deref for GnuExtSparseHeader {
+    type Target = tar_core::GnuExtSparseHeader;
+    fn deref(&self) -> &tar_core::GnuExtSparseHeader {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for GnuExtSparseHeader {
+    fn deref_mut(&mut self) -> &mut tar_core::GnuExtSparseHeader {
+        &mut self.0
+    }
 }
 
 impl Header {
+    /// Bridge to tar-core's Header (immutable).
+    fn as_core(&self) -> &tar_core::Header {
+        tar_core::Header::from_bytes(&self.bytes)
+    }
+
+    /// Bridge to tar-core's Header (mutable).
+    fn as_core_mut(&mut self) -> &mut tar_core::Header {
+        // SAFETY: tar_core::Header is #[repr(transparent)] over [u8; 512]
+        unsafe { &mut *(self.bytes.as_mut_ptr() as *mut tar_core::Header) }
+    }
+
+    /// Set the magic/version fields to GNU format.
+    fn set_gnu_format(&mut self) {
+        self.bytes[257..263].copy_from_slice(tar_core::GNU_MAGIC);
+        self.bytes[263..265].copy_from_slice(tar_core::GNU_VERSION);
+    }
+
     /// Creates a new blank GNU header.
     ///
     /// The GNU style header is the default for this library and allows various
     /// extensions such as long path names, long link names, and setting the
     /// atime/ctime metadata attributes of files.
     pub fn new_gnu() -> Header {
+        let core = tar_core::Header::new_gnu();
         let mut header = Header {
-            bytes: [0; BLOCK_SIZE as usize],
+            bytes: *core.as_bytes(),
         };
-        unsafe {
-            let gnu = cast_mut::<_, GnuHeader>(&mut header);
-            gnu.magic = *b"ustar ";
-            gnu.version = *b" \0";
-        }
         header.set_mtime(0);
         header
     }
@@ -170,14 +164,10 @@ impl Header {
     ///
     /// UStar is also the basis used for pax archives.
     pub fn new_ustar() -> Header {
+        let core = tar_core::Header::new_ustar();
         let mut header = Header {
-            bytes: [0; BLOCK_SIZE as usize],
+            bytes: *core.as_bytes(),
         };
-        unsafe {
-            let gnu = cast_mut::<_, UstarHeader>(&mut header);
-            gnu.magic = *b"ustar\0";
-            gnu.version = *b"00";
-        }
         header.set_mtime(0);
         header
     }
@@ -189,21 +179,20 @@ impl Header {
     /// format limits the path name limit and isn't able to contain extra
     /// metadata like atime/ctime.
     pub fn new_old() -> Header {
+        let core = tar_core::Header::new_old();
         let mut header = Header {
-            bytes: [0; BLOCK_SIZE as usize],
+            bytes: *core.as_bytes(),
         };
         header.set_mtime(0);
         header
     }
 
     fn is_ustar(&self) -> bool {
-        let ustar = unsafe { cast::<_, UstarHeader>(self) };
-        ustar.magic[..] == b"ustar\0"[..] && ustar.version[..] == b"00"[..]
+        self.as_core().is_ustar()
     }
 
     fn is_gnu(&self) -> bool {
-        let ustar = unsafe { cast::<_, UstarHeader>(self) };
-        ustar.magic[..] == b"ustar "[..] && ustar.version[..] == b" \0"[..]
+        self.as_core().is_gnu()
     }
 
     /// View this archive header as a raw "old" archive header.
@@ -211,12 +200,12 @@ impl Header {
     /// This view will always succeed as all archive header formats will fill
     /// out at least the fields specified in the old header format.
     pub fn as_old(&self) -> &OldHeader {
-        unsafe { cast(self) }
+        unsafe { &*(self as *const Header as *const OldHeader) }
     }
 
     /// Same as `as_old`, but the mutable version.
     pub fn as_old_mut(&mut self) -> &mut OldHeader {
-        unsafe { cast_mut(self) }
+        unsafe { &mut *(self as *mut Header as *mut OldHeader) }
     }
 
     /// View this archive header as a raw UStar archive header.
@@ -230,7 +219,7 @@ impl Header {
     /// returning `None` if they aren't correct.
     pub fn as_ustar(&self) -> Option<&UstarHeader> {
         if self.is_ustar() {
-            Some(unsafe { cast(self) })
+            Some(unsafe { &*(self as *const Header as *const UstarHeader) })
         } else {
             None
         }
@@ -239,7 +228,7 @@ impl Header {
     /// Same as `as_ustar_mut`, but the mutable version.
     pub fn as_ustar_mut(&mut self) -> Option<&mut UstarHeader> {
         if self.is_ustar() {
-            Some(unsafe { cast_mut(self) })
+            Some(unsafe { &mut *(self as *mut Header as *mut UstarHeader) })
         } else {
             None
         }
@@ -256,7 +245,7 @@ impl Header {
     /// returning `None` if they aren't correct.
     pub fn as_gnu(&self) -> Option<&GnuHeader> {
         if self.is_gnu() {
-            Some(unsafe { cast(self) })
+            Some(unsafe { &*(self as *const Header as *const GnuHeader) })
         } else {
             None
         }
@@ -265,7 +254,7 @@ impl Header {
     /// Same as `as_gnu`, but the mutable version.
     pub fn as_gnu_mut(&mut self) -> Option<&mut GnuHeader> {
         if self.is_gnu() {
-            Some(unsafe { cast_mut(self) })
+            Some(unsafe { &mut *(self as *mut Header as *mut GnuHeader) })
         } else {
             None
         }
@@ -315,10 +304,10 @@ impl Header {
     ///
     /// May return an error if the field is corrupted.
     pub fn entry_size(&self) -> io::Result<u64> {
-        num_field_wrapper_from(&self.as_old().size).map_err(|err| {
+        self.as_core().entry_size().map_err(|err| {
             io::Error::new(
-                err.kind(),
-                format!("{} when getting size for {}", err, self.path_lossy()),
+                io::ErrorKind::InvalidData,
+                format!("{} when getting entry_size for {}", err, self.path_lossy()),
             )
         })
     }
@@ -338,7 +327,10 @@ impl Header {
 
     /// Encodes the `size` argument into the size field of this header.
     pub fn set_size(&mut self, size: u64) {
-        num_field_wrapper_into(&mut self.as_old_mut().size, size);
+        if self.as_core_mut().set_size(size).is_err() {
+            self.set_gnu_format();
+            let _ = self.as_core_mut().set_size(size);
+        }
     }
 
     /// Returns the raw path name stored in this header.
@@ -473,28 +465,29 @@ impl Header {
     ///
     /// May return an error if the field is corrupted.
     pub fn mode(&self) -> io::Result<u32> {
-        octal_from(&self.as_old().mode)
-            .map(|u| u as u32)
-            .map_err(|err| {
-                io::Error::new(
-                    err.kind(),
-                    format!("{} when getting mode for {}", err, self.path_lossy()),
-                )
-            })
+        self.as_core().mode().map_err(|err| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("{} when getting mode for {}", err, self.path_lossy()),
+            )
+        })
     }
 
     /// Encodes the `mode` provided into this header.
     pub fn set_mode(&mut self, mode: u32) {
-        octal_into(&mut self.as_old_mut().mode, mode);
+        if self.as_core_mut().set_mode(mode).is_err() {
+            self.set_gnu_format();
+            let _ = self.as_core_mut().set_mode(mode);
+        }
     }
 
     /// Returns the value of the owner's user ID field
     ///
     /// May return an error if the field is corrupted.
     pub fn uid(&self) -> io::Result<u64> {
-        num_field_wrapper_from(&self.as_old().uid).map_err(|err| {
+        self.as_core().uid().map_err(|err| {
             io::Error::new(
-                err.kind(),
+                io::ErrorKind::InvalidData,
                 format!("{} when getting uid for {}", err, self.path_lossy()),
             )
         })
@@ -502,14 +495,17 @@ impl Header {
 
     /// Encodes the `uid` provided into this header.
     pub fn set_uid(&mut self, uid: u64) {
-        num_field_wrapper_into(&mut self.as_old_mut().uid, uid);
+        if self.as_core_mut().set_uid(uid).is_err() {
+            self.set_gnu_format();
+            let _ = self.as_core_mut().set_uid(uid);
+        }
     }
 
     /// Returns the value of the group's user ID field
     pub fn gid(&self) -> io::Result<u64> {
-        num_field_wrapper_from(&self.as_old().gid).map_err(|err| {
+        self.as_core().gid().map_err(|err| {
             io::Error::new(
-                err.kind(),
+                io::ErrorKind::InvalidData,
                 format!("{} when getting gid for {}", err, self.path_lossy()),
             )
         })
@@ -517,14 +513,17 @@ impl Header {
 
     /// Encodes the `gid` provided into this header.
     pub fn set_gid(&mut self, gid: u64) {
-        num_field_wrapper_into(&mut self.as_old_mut().gid, gid);
+        if self.as_core_mut().set_gid(gid).is_err() {
+            self.set_gnu_format();
+            let _ = self.as_core_mut().set_gid(gid);
+        }
     }
 
     /// Returns the last modification time in Unix time format
     pub fn mtime(&self) -> io::Result<u64> {
-        num_field_wrapper_from(&self.as_old().mtime).map_err(|err| {
+        self.as_core().mtime().map_err(|err| {
             io::Error::new(
-                err.kind(),
+                io::ErrorKind::InvalidData,
                 format!("{} when getting mtime for {}", err, self.path_lossy()),
             )
         })
@@ -535,7 +534,10 @@ impl Header {
     /// Note that this time is typically a number of seconds passed since
     /// January 1, 1970.
     pub fn set_mtime(&mut self, mtime: u64) {
-        num_field_wrapper_into(&mut self.as_old_mut().mtime, mtime);
+        if self.as_core_mut().set_mtime(mtime).is_err() {
+            self.set_gnu_format();
+            let _ = self.as_core_mut().set_mtime(mtime);
+        }
     }
 
     /// Return the user name of the owner of this file.
@@ -555,15 +557,8 @@ impl Header {
     ///
     /// A return value of `None` indicates that the user name is not present in
     /// this header format.
-    #[allow(clippy::manual_map)]
     pub fn username_bytes(&self) -> Option<&[u8]> {
-        if let Some(ustar) = self.as_ustar() {
-            Some(ustar.username_bytes())
-        } else if let Some(gnu) = self.as_gnu() {
-            Some(gnu.username_bytes())
-        } else {
-            None
-        }
+        self.as_core().username()
     }
 
     /// Sets the username inside this header.
@@ -598,15 +593,8 @@ impl Header {
     ///
     /// A return value of `None` indicates that the group name is not present in
     /// this header format.
-    #[allow(clippy::manual_map)]
     pub fn groupname_bytes(&self) -> Option<&[u8]> {
-        if let Some(ustar) = self.as_ustar() {
-            Some(ustar.groupname_bytes())
-        } else if let Some(gnu) = self.as_gnu() {
-            Some(gnu.groupname_bytes())
-        } else {
-            None
-        }
+        self.as_core().groupname()
     }
 
     /// Sets the group name inside this header.
@@ -632,13 +620,16 @@ impl Header {
     /// not include the device major number, and `Err` indicates that it was
     /// present and failed to decode.
     pub fn device_major(&self) -> io::Result<Option<u32>> {
-        if let Some(ustar) = self.as_ustar() {
-            ustar.device_major().map(Some)
-        } else if let Some(gnu) = self.as_gnu() {
-            gnu.device_major().map(Some)
-        } else {
-            Ok(None)
-        }
+        self.as_core().device_major().map_err(|err| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "{} when getting device_major for {}",
+                    err,
+                    self.path_lossy()
+                ),
+            )
+        })
     }
 
     /// Encodes the value `major` into the dev_major field of this header.
@@ -665,13 +656,16 @@ impl Header {
     /// not include the device minor number, and `Err` indicates that it was
     /// present and failed to decode.
     pub fn device_minor(&self) -> io::Result<Option<u32>> {
-        if let Some(ustar) = self.as_ustar() {
-            ustar.device_minor().map(Some)
-        } else if let Some(gnu) = self.as_gnu() {
-            gnu.device_minor().map(Some)
-        } else {
-            Ok(None)
-        }
+        self.as_core().device_minor().map_err(|err| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "{} when getting device_minor for {}",
+                    err,
+                    self.path_lossy()
+                ),
+            )
+        })
     }
 
     /// Encodes the value `minor` into the dev_minor field of this header.
@@ -717,21 +711,11 @@ impl Header {
     /// Sets the checksum field of this header based on the current fields in
     /// this header.
     pub fn set_cksum(&mut self) {
-        let cksum = self.calculate_cksum();
-        octal_into(&mut self.as_old_mut().cksum, cksum);
+        self.as_core_mut().set_checksum();
     }
 
     fn calculate_cksum(&self) -> u32 {
-        let old = self.as_old();
-        let start = old as *const _ as usize;
-        let cksum_start = old.cksum.as_ptr() as *const _ as usize;
-        let offset = cksum_start - start;
-        let len = old.cksum.len();
-        self.bytes[0..offset]
-            .iter()
-            .chain(iter::repeat_n(&b' ', len))
-            .chain(&self.bytes[offset + len..])
-            .fold(0, |a, b| a + (*b as u32))
+        self.as_core().compute_checksum() as u32
     }
 
     fn fill_from(&mut self, meta: &Metadata, mode: HeaderMode) {
@@ -910,18 +894,6 @@ impl<T: fmt::Octal> fmt::Debug for DebugAsOctal<T> {
     }
 }
 
-unsafe fn cast<T, U>(a: &T) -> &U {
-    assert_eq!(mem::size_of_val(a), mem::size_of::<U>());
-    assert_eq!(mem::align_of_val(a), mem::align_of::<U>());
-    &*(a as *const T as *const U)
-}
-
-unsafe fn cast_mut<T, U>(a: &mut T) -> &mut U {
-    assert_eq!(mem::size_of_val(a), mem::size_of::<U>());
-    assert_eq!(mem::align_of_val(a), mem::align_of::<U>());
-    &mut *(a as *mut T as *mut U)
-}
-
 impl Clone for Header {
     fn clone(&self) -> Header {
         Header { bytes: self.bytes }
@@ -943,12 +915,12 @@ impl fmt::Debug for Header {
 impl OldHeader {
     /// Views this as a normal `Header`
     pub fn as_header(&self) -> &Header {
-        unsafe { cast(self) }
+        unsafe { &*(self as *const OldHeader as *const Header) }
     }
 
     /// Views this as a normal `Header`
     pub fn as_header_mut(&mut self) -> &mut Header {
-        unsafe { cast_mut(self) }
+        unsafe { &mut *(self as *mut OldHeader as *mut Header) }
     }
 }
 
@@ -1114,12 +1086,12 @@ impl UstarHeader {
 
     /// Views this as a normal `Header`
     pub fn as_header(&self) -> &Header {
-        unsafe { cast(self) }
+        unsafe { &*(self as *const UstarHeader as *const Header) }
     }
 
     /// Views this as a normal `Header`
     pub fn as_header_mut(&mut self) -> &mut Header {
-        unsafe { cast_mut(self) }
+        unsafe { &mut *(self as *mut UstarHeader as *mut Header) }
     }
 }
 
@@ -1223,9 +1195,9 @@ impl GnuHeader {
 
     /// Returns the last modification time in Unix time format
     pub fn atime(&self) -> io::Result<u64> {
-        num_field_wrapper_from(&self.atime).map_err(|err| {
+        self.0.atime().map_err(|err| {
             io::Error::new(
-                err.kind(),
+                io::ErrorKind::InvalidData,
                 format!("{} when getting atime for {}", err, self.fullname_lossy()),
             )
         })
@@ -1236,14 +1208,14 @@ impl GnuHeader {
     /// Note that this time is typically a number of seconds passed since
     /// January 1, 1970.
     pub fn set_atime(&mut self, atime: u64) {
-        num_field_wrapper_into(&mut self.atime, atime);
+        self.0.set_atime(atime);
     }
 
     /// Returns the last modification time in Unix time format
     pub fn ctime(&self) -> io::Result<u64> {
-        num_field_wrapper_from(&self.ctime).map_err(|err| {
+        self.0.ctime().map_err(|err| {
             io::Error::new(
-                err.kind(),
+                io::ErrorKind::InvalidData,
                 format!("{} when getting ctime for {}", err, self.fullname_lossy()),
             )
         })
@@ -1254,7 +1226,7 @@ impl GnuHeader {
     /// Note that this time is typically a number of seconds passed since
     /// January 1, 1970.
     pub fn set_ctime(&mut self, ctime: u64) {
-        num_field_wrapper_into(&mut self.ctime, ctime);
+        self.0.set_ctime(ctime);
     }
 
     /// Returns the "real size" of the file this header represents.
@@ -1262,9 +1234,9 @@ impl GnuHeader {
     /// This is applicable for sparse files where the returned size here is the
     /// size of the entire file after the sparse regions have been filled in.
     pub fn real_size(&self) -> io::Result<u64> {
-        num_field_wrapper_from(&self.realsize).map_err(|err| {
+        self.0.real_size().map_err(|err| {
             io::Error::new(
-                err.kind(),
+                io::ErrorKind::InvalidData,
                 format!(
                     "{} when getting real_size for {}",
                     err,
@@ -1285,12 +1257,12 @@ impl GnuHeader {
 
     /// Views this as a normal `Header`
     pub fn as_header(&self) -> &Header {
-        unsafe { cast(self) }
+        unsafe { &*(self as *const GnuHeader as *const Header) }
     }
 
     /// Views this as a normal `Header`
     pub fn as_header_mut(&mut self) -> &mut Header {
-        unsafe { cast_mut(self) }
+        unsafe { &mut *(self as *mut GnuHeader as *mut Header) }
     }
 }
 
@@ -1324,54 +1296,13 @@ impl fmt::Debug for DebugSparseHeaders<'_> {
     }
 }
 
-impl GnuSparseHeader {
-    /// Returns true if block is empty
-    pub fn is_empty(&self) -> bool {
-        self.offset[0] == 0 || self.numbytes[0] == 0
-    }
-
-    /// Offset of the block from the start of the file
-    ///
-    /// Returns `Err` for a malformed `offset` field.
-    pub fn offset(&self) -> io::Result<u64> {
-        num_field_wrapper_from(&self.offset).map_err(|err| {
-            io::Error::new(
-                err.kind(),
-                format!("{} when getting offset from sparse header", err),
-            )
-        })
-    }
-
-    /// Length of the block
-    ///
-    /// Returns `Err` for a malformed `numbytes` field.
-    pub fn length(&self) -> io::Result<u64> {
-        num_field_wrapper_from(&self.numbytes).map_err(|err| {
-            io::Error::new(
-                err.kind(),
-                format!("{} when getting length from sparse header", err),
-            )
-        })
-    }
-}
-
-impl fmt::Debug for GnuSparseHeader {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut f = f.debug_struct("GnuSparseHeader");
-        if let Ok(offset) = self.offset() {
-            f.field("offset", &offset);
-        }
-        if let Ok(length) = self.length() {
-            f.field("length", &length);
-        }
-        f.finish()
-    }
-}
+// GnuSparseHeader is now a type alias for tar_core::GnuSparseHeader,
+// which already provides is_empty(), offset(), length(), and Debug.
 
 impl GnuExtSparseHeader {
     /// Crates a new zero'd out sparse header entry.
     pub fn new() -> GnuExtSparseHeader {
-        unsafe { mem::zeroed() }
+        GnuExtSparseHeader(tar_core::GnuExtSparseHeader::default())
     }
 
     /// Returns a view into this header as a byte array.
@@ -1391,12 +1322,12 @@ impl GnuExtSparseHeader {
     /// Some headers may represent empty chunks of both the offset and numbytes
     /// fields are 0.
     pub fn sparse(&self) -> &[GnuSparseHeader; 21] {
-        &self.sparse
+        &self.0.sparse
     }
 
     /// Indicates if another sparse header should be following this one.
     pub fn is_extended(&self) -> bool {
-        self.isextended[0] == 1
+        self.0.isextended[0] == 1
     }
 }
 
@@ -1429,58 +1360,6 @@ fn octal_into<T: fmt::Octal>(dst: &mut [u8], val: T) {
     for (slot, value) in dst.iter_mut().rev().zip(value) {
         *slot = value;
     }
-}
-
-// Wrapper to figure out if we should fill the header field using tar's numeric
-// extension (binary) or not (octal).
-fn num_field_wrapper_into(dst: &mut [u8], src: u64) {
-    if src >= 8_589_934_592 || (src >= 2_097_152 && dst.len() == 8) {
-        numeric_extended_into(dst, src);
-    } else {
-        octal_into(dst, src);
-    }
-}
-
-// Wrapper to figure out if we should read the header field in binary (numeric
-// extension) or octal (standard encoding).
-fn num_field_wrapper_from(src: &[u8]) -> io::Result<u64> {
-    if src[0] & 0x80 != 0 {
-        Ok(numeric_extended_from(src))
-    } else {
-        octal_from(src)
-    }
-}
-
-// When writing numeric fields with is the extended form, the high bit of the
-// first byte is set to 1 and the remainder of the field is treated as binary
-// instead of octal ascii.
-// This handles writing u64 to 8 (uid, gid) or 12 (size, *time) bytes array.
-fn numeric_extended_into(dst: &mut [u8], src: u64) {
-    let len: usize = dst.len();
-    for (slot, val) in dst.iter_mut().zip(
-        iter::repeat_n(0, len - 8) // to zero init extra bytes
-            .chain((0..8).rev().map(|x| ((src >> (8 * x)) & 0xff) as u8)),
-    ) {
-        *slot = val;
-    }
-    dst[0] |= 0x80;
-}
-
-fn numeric_extended_from(src: &[u8]) -> u64 {
-    let mut dst: u64 = 0;
-    let mut b_to_skip = 1;
-    if src.len() == 8 {
-        // read first byte without extension flag bit
-        dst = (src[0] ^ 0x80) as u64;
-    } else {
-        // only read last 8 bytes
-        b_to_skip = src.len() - 8;
-    }
-    for byte in src.iter().skip(b_to_skip) {
-        dst <<= 8;
-        dst |= *byte as u64;
-    }
-    dst
 }
 
 fn truncate(slice: &[u8]) -> &[u8] {

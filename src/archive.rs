@@ -708,8 +708,8 @@ fn poll_parse_sparse_header<R: Read + Unpin>(
             if block.is_empty() {
                 return Ok(());
             }
-            let off = block.offset()?;
-            let len = block.length()?;
+            let off = block.offset().map_err(|e| other(&e.to_string()))?;
+            let len = block.length().map_err(|e| other(&e.to_string()))?;
 
             if len != 0 && (size - remaining) % BLOCK_SIZE != 0 {
                 return Err(other(
@@ -763,7 +763,7 @@ fn poll_parse_sparse_header<R: Read + Unpin>(
                 }
 
                 *next += BLOCK_SIZE;
-                for block in ext.sparse.iter() {
+                for block in ext.sparse().iter() {
                     add_block(block)?;
                 }
             }
