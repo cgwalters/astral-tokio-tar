@@ -584,17 +584,24 @@ async fn append_dir<Dst: Write + Unpin + ?Sized>(
 }
 
 fn prepare_header(size: u64, entry_type: EntryType) -> Header {
+    use tar_core::builder::HeaderBuilder;
+
+    // + 1 to be compliant with GNU tar (null terminator)
+    let data_with_null_len = (size + 1) as u64;
+    let mut hdr = HeaderBuilder::new_gnu();
+    hdr.path(b"././@LongLink").expect("fits");
+    hdr.mode(0o644).expect("fits");
+    hdr.uid(0).expect("fits");
+    hdr.gid(0).expect("fits");
+    hdr.size(data_with_null_len).expect("fits");
+    hdr.mtime(0).expect("fits");
+    hdr.entry_type(entry_type);
+    let core_header = hdr.finish();
+
     let mut header = Header::new_gnu();
-    let name = b"././@LongLink";
-    header.as_gnu_mut().unwrap().name[..name.len()].clone_from_slice(&name[..]);
-    header.set_mode(0o644);
-    header.set_uid(0);
-    header.set_gid(0);
-    header.set_mtime(0);
-    // + 1 to be compliant with GNU tar
-    header.set_size(size + 1);
-    header.set_entry_type(entry_type);
-    header.set_cksum();
+    header
+        .as_mut_bytes()
+        .copy_from_slice(core_header.as_bytes());
     header
 }
 
