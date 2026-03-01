@@ -1,6 +1,6 @@
 use crate::fs::normalize;
 use crate::{
-    error::TarError, header::bytes2path, other, pax::pax_extensions, Archive, Header, PaxExtensions,
+    error::TarError, header::bytes2path, other, Archive, Header, PaxExtensions,
 };
 use filetime::{self, FileTime};
 use rustc_hash::FxHashSet;
@@ -402,7 +402,7 @@ impl<R: Read + Unpin> EntryFields<R> {
             }
             None => {
                 if let Some(ref pax) = self.pax_extensions {
-                    let pax = pax_extensions(pax)
+                    let pax = PaxExtensions::new(pax)
                         .filter_map(|f| f.ok())
                         .find(|f| f.key_bytes() == b"path")
                         .map(|f| f.value_bytes());
@@ -438,7 +438,7 @@ impl<R: Read + Unpin> EntryFields<R> {
             }
             None => {
                 if let Some(ref pax) = self.pax_extensions {
-                    let pax = pax_extensions(pax)
+                    let pax = PaxExtensions::new(pax)
                         .filter_map(|f| f.ok())
                         .find(|f| f.key_bytes() == b"linkpath")
                         .map(|f| f.value_bytes());
@@ -460,7 +460,7 @@ impl<R: Read + Unpin> EntryFields<R> {
             }
             self.pax_extensions = Some(self.read_all().await?);
         }
-        Ok(Some(pax_extensions(self.pax_extensions.as_ref().unwrap())))
+        Ok(Some(PaxExtensions::new(self.pax_extensions.as_ref().unwrap())))
     }
 
     /// Unpack the [`Entry`] into the specified destination.

@@ -18,9 +18,9 @@ use tokio_stream::*;
 use crate::{
     entry::{EntryFields, EntryIo},
     error::TarError,
-    other, Entry, GnuExtSparseHeader, GnuSparseHeader, Header,
+    header::BLOCK_SIZE,
+    other, Entry, GnuExtSparseHeader, GnuSparseHeader, Header, PaxExtensions,
 };
-use crate::{header::BLOCK_SIZE, pax::pax_extensions};
 
 /// A top-level representation of an archive file.
 ///
@@ -579,7 +579,7 @@ fn poll_next_raw<R: Read + Unpin>(
 
     // the size above will be overriden by the pax data if it has a size field.
     // same for uid and gid, which will be overridden in the header itself.
-    if let Some(pax) = pax_extensions_data.map(pax_extensions) {
+    if let Some(pax) = pax_extensions_data.map(PaxExtensions::new) {
         for extension in pax {
             let extension = extension?;
 
