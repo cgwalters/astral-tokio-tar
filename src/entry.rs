@@ -357,26 +357,10 @@ impl<R: Read + Unpin> Read for Entry<R> {
 }
 
 impl<R: Read + Unpin> EntryFields<R> {
-    pub fn from(entry: Entry<R>) -> Self {
-        entry.fields
-    }
-
     pub fn into_entry(self) -> Entry<R> {
         Entry {
             fields: self,
             _ignored: marker::PhantomData,
-        }
-    }
-
-    pub(crate) fn poll_read_all(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        out: &mut Vec<u8>,
-    ) -> Poll<io::Result<()>> {
-        // Copied from futures::ReadToEnd
-        match poll_read_all_internal(self, cx, out) {
-            Poll::Ready(t) => Poll::Ready(t.map(|_| ())),
-            Poll::Pending => Poll::Pending,
         }
     }
 
@@ -1040,54 +1024,4 @@ impl<R: Read + Unpin> Read for EntryIo<R> {
     }
 }
 
-struct Guard<'a> {
-    buf: &'a mut Vec<u8>,
-    len: usize,
-}
 
-impl Drop for Guard<'_> {
-    fn drop(&mut self) {
-        unsafe {
-            self.buf.set_len(self.len);
-        }
-    }
-}
-
-fn poll_read_all_internal<R: Read + ?Sized>(
-    mut rd: Pin<&mut R>,
-    cx: &mut Context<'_>,
-    buf: &mut Vec<u8>,
-) -> Poll<io::Result<usize>> {
-    let mut g = Guard {
-        len: buf.len(),
-        buf,
-    };
-    let ret;
-    loop {
-        if g.len == g.buf.len() {
-            unsafe {
-                g.buf.reserve(32);
-                let capacity = g.buf.capacity();
-                g.buf.set_len(capacity);
-
-                let buf = &mut g.buf[g.len..];
-                std::ptr::write_bytes(buf.as_mut_ptr(), 0, buf.len());
-            }
-        }
-
-        let mut read_buf = io::ReadBuf::new(&mut g.buf[g.len..]);
-        match futures_core::ready!(rd.as_mut().poll_read(cx, &mut read_buf)) {
-            Ok(()) if read_buf.filled().is_empty() => {
-                ret = Poll::Ready(Ok(g.len));
-                break;
-            }
-            Ok(()) => g.len += read_buf.filled().len(),
-            Err(e) => {
-                ret = Poll::Ready(Err(e));
-                break;
-            }
-        }
-    }
-
-    ret
-}
